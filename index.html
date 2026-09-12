@@ -38,6 +38,7 @@
   h1 { font-size: 1.4rem; margin: 0 0 4px; }
   h2 { font-size: 1rem; margin: 24px 0 8px; }
   p.sub { color: var(--text-secondary); margin: 0 0 16px; }
+  p.refreshed { margin: 0 0 8px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .chart { position: relative; height: 280px; max-width: 100%; }
   #status { color: var(--text-secondary); }
   table { border-collapse: collapse; width: 100%; margin-top: 8px; font-variant-numeric: tabular-nums; }
@@ -49,6 +50,7 @@
 <body>
 <main>
   <h1>Austin, TX temperature predictions</h1>
+  <p id="lastRefreshed" class="refreshed">Last refreshed: —</p>
   <p class="sub">Predicted vs. actual temperature and prediction error for the last 10 runs. Prediction is the average of the previous two readings.</p>
   <p id="status">Loading output/predict.json…</p>
 
@@ -80,6 +82,7 @@
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim();
   const status = document.getElementById("status");
+  const lastRefreshed = document.getElementById("lastRefreshed");
   const charts = {};
   let recordCount = -1;
   let nextRefreshAt = null;
@@ -95,6 +98,14 @@
 
   function fmtTime(d) {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function setLastRefreshed(records) {
+    if (!records.length) { lastRefreshed.textContent = "Last refreshed: no data yet"; return; }
+    const d = new Date(records[records.length - 1].timestamp);
+    const local = d.toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZoneName: "short" });
+    lastRefreshed.textContent = `Last refreshed: ${local}`;
+    lastRefreshed.title = `Timestamp of the latest event in the data (${d.toISOString().replace(".000Z", "Z")})`;
   }
 
   function setStatus(msg) {
@@ -173,6 +184,7 @@
     const changed = records.length !== recordCount;
     if (changed) {
       recordCount = records.length;
+      setLastRefreshed(records);
       if (records.length) render(records);
     }
     if (!records.length) setStatus("No predictions yet.");
