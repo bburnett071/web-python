@@ -4,14 +4,47 @@
 Writes output/predict.json, a list of prediction records. Each record stores the
 row index the prediction was made for; when that row later appears in
 data/events.csv the actual value and error are filled in.
+
+GOOGLE_MAPS_API_KEY arrives as an environment variable set from a GitHub Actions
+secret. It is read but not used; see fetch_drive_time().
 """
 import csv
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 DATA_FILE = Path("data") / "events.csv"
 PREDICT_FILE = Path("output") / "predict.json"
+
+
+def fetch_drive_time():
+    """Pretend to look up the Dallas -> Austin drive time with the Google Maps API.
+
+    In a real pipeline this would call the Distance Matrix API, e.g.:
+
+        import requests
+        resp = requests.get(
+            "https://maps.googleapis.com/maps/api/distancematrix/json",
+            params={
+                "origins": "Dallas, TX",
+                "destinations": "Austin, TX",
+                "departure_time": "now",
+                "key": os.environ["GOOGLE_MAPS_API_KEY"],
+            },
+            timeout=10,
+        )
+        seconds = resp.json()["rows"][0]["elements"][0]["duration_in_traffic"]["value"]
+
+    and the drive time could become a feature for the model. For this demo we only
+    confirm the key was passed in. The value is never printed.
+    """
+    key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+    if key:
+        print("Google Maps API key received (demo: no request is made).")
+    else:
+        print("Google Maps API key not set; skipping drive-time lookup (demo).")
+    return None
 
 
 def load_temps():
@@ -44,6 +77,7 @@ def predict(temps):
 
 
 def main():
+    fetch_drive_time()  # demo: Dallas -> Austin drive time would be a model input
     temps = load_temps()
     predictions = load_predictions()
     fill_actuals(predictions, temps)

@@ -19,4 +19,18 @@ unchanged file costs a 304 with no body.
 - Locally: `python -m http.server` then open http://localhost:8000/
 - On GitHub: enable Pages (Settings → Pages → Deploy from branch → `main`, `/ (root)`).
 
+## Secrets
+
+The workflow passes three repository secrets to the scripts as environment
+variables (Settings → Secrets and variables → Actions → New repository secret):
+
+| Secret | Used by | Purpose (demo only, nothing is actually called) |
+|---|---|---|
+| `VERTICA_USER_NAME` | `db_pull.py` | Vertica login for pulling readings |
+| `VERTICA_PASSWORD` | `db_pull.py` | Vertica password |
+| `GOOGLE_MAPS_API_KEY` | `run_model.py` | Dallas → Austin drive-time lookup |
+
+If a secret is missing the scripts print a note and continue, so the pipeline
+still runs. Secret values are never printed.
+
 Run the workflow manually from the Actions tab ("Run workflow") to get the first data points.
