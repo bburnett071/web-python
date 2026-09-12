@@ -2,7 +2,7 @@ name: Temperature pipeline (every 4 hours)
 
 on:
   schedule:
-    - cron: "0 */4 * * *" # every 4 hours (UTC)
+    - cron: "23 */4 * * *" # every 4 hours at :23 (UTC); off the congested top of the hour
   workflow_dispatch:       # manual "Run workflow" button
 
 permissions:

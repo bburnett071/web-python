@@ -1,6 +1,6 @@
 # Austin temperature demo pipeline
 
-Demo only. A GitHub Action runs every 4 hours and:
+Demo only. A GitHub Action runs every 4 hours (at :23 past, UTC, to avoid GitHub's congested top-of-hour cron slot) and:
 
 1. `db_pull.py` appends a fake Austin, TX temperature reading to `data/events.csv`.
 2. `run_model.py` predicts the next reading (average of the last two) and writes
@@ -10,9 +10,11 @@ Demo only. A GitHub Action runs every 4 hours and:
 3. The results are committed back to the repo.
 
 `index.html` charts the temperature and error for the last 10 predictions. It
-fetches `output/predict.json`, so it needs to be served over HTTP. It re-fetches
-the data 30 seconds after each scheduled run (every 4 hours, UTC) and keeps checking
-each minute until the new record appears, so an open tab updates on its own.
+fetches `output/predict.json`, so it needs to be served over HTTP. It checks for new
+data 30 seconds after each scheduled run, then every minute for half an hour, then
+every 5 minutes until the new record shows up (GitHub cron runs are often late), so an
+open tab updates on its own. Checks use `If-None-Match` with the server's ETag, so an
+unchanged file costs a 304 with no body.
 
 - Locally: `python -m http.server` then open http://localhost:8000/
 - On GitHub: enable Pages (Settings → Pages → Deploy from branch → `main`, `/ (root)`).

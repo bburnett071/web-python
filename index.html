@@ -71,28 +71,35 @@
 
 <script>
 (function () {
-  // Matches the workflow cron "0 */4 * * *" (UTC). The page re-fetches the data
-  // 30 s after each scheduled run, then keeps checking every minute until the
-  // new record shows up (GitHub cron runs and Pages deploys are often late).
+  // Matches the workflow cron "23 */4 * * *" (UTC). The page checks for new
+  // data 30 s after each scheduled mark, then every minute for half an hour,
+  // then every 5 minutes until the new record appears (GitHub cron runs are
+  // frequently late or skipped). Checks are conditional requests: the ETag from
+  // the last response is sent as If-None-Match, so an unchanged file returns a
+  // bodiless 304. Servers without ETags fall back to comparing the last record.
   const CRON_HOURS = 4;
+  const CRON_MINUTE = 23;
   const AFTER_CRON_MS = 30 * 1000;
-  const POLL_MS = 60 * 1000;
-  const GIVE_UP_MS = 30 * 60 * 1000;
+  const FAST_POLL_MS = 60 * 1000;
+  const FAST_POLL_FOR_MS = 30 * 60 * 1000;
+  const SLOW_POLL_MS = 5 * 60 * 1000;
 
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim();
   const status = document.getElementById("status");
   const lastRefreshed = document.getElementById("lastRefreshed");
   const charts = {};
-  let recordCount = -1;
+  let etag = null;
+  let signature = null;
   let nextRefreshAt = null;
-  let pollUntil = null;
+  let fastPollUntil = null;
 
   function nextCronTime(from = new Date()) {
     const t = new Date(from);
-    t.setUTCMinutes(0, 0, 0);
+    t.setUTCMinutes(CRON_MINUTE, 0, 0);
     const h = t.getUTCHours();
-    t.setUTCHours(h - (h % CRON_HOURS) + CRON_HOURS);
+    t.setUTCHours(h - (h % CRON_HOURS));
+    while (t <= from) t.setUTCHours(t.getUTCHours() + CRON_HOURS);
     return t;
   }
 
@@ -113,10 +120,21 @@
     status.textContent = msg + when;
   }
 
-  async function fetchRecords() {
-    const res = await fetch("output/predict.json", { cache: "no-store" });
+  // Returns the records if the file changed, or null if the server (via 304)
+  // or the fallback comparison says it is unchanged.
+  async function fetchIfChanged() {
+    const headers = etag ? { "If-None-Match": etag } : {};
+    const res = await fetch("output/predict.json", { cache: "no-store", headers });
+    if (res.status === 304) return null;
     if (!res.ok) throw new Error(res.status + " " + res.statusText);
-    return res.json();
+    const records = await res.json();
+    const newEtag = res.headers.get("ETag");
+    const last = records.length ? records[records.length - 1] : null;
+    const newSignature = `${records.length}|${last ? last.timestamp : ""}|${last ? last.actual : ""}`;
+    const changed = newEtag ? newEtag !== etag : newSignature !== signature;
+    etag = newEtag;
+    signature = newSignature;
+    return changed ? records : null;
   }
 
   function render(records) {
@@ -173,42 +191,45 @@
     });
   }
 
+  let total = 0;
+
   async function refresh() {
     let records;
     try {
-      records = await fetchRecords();
+      records = await fetchIfChanged();
     } catch (err) {
       setStatus("Could not load output/predict.json (" + err.message + "). Serve this folder over HTTP, e.g. `python -m http.server`, or view it on GitHub Pages.");
       return false;
     }
-    const changed = records.length !== recordCount;
+    const changed = records !== null;
     if (changed) {
-      recordCount = records.length;
+      total = records.length;
       setLastRefreshed(records);
       if (records.length) render(records);
     }
-    if (!records.length) setStatus("No predictions yet.");
-    else setStatus(`${records.length} prediction${records.length === 1 ? "" : "s"} total; showing last ${Math.min(10, records.length)}. Updated ${fmtTime(new Date())}.`);
+    if (!total) setStatus("No predictions yet.");
+    else setStatus(`${total} prediction${total === 1 ? "" : "s"} total; showing last ${Math.min(10, total)}. Checked ${fmtTime(new Date())}.`);
     return changed;
   }
 
   function scheduleNext() {
     nextRefreshAt = new Date(nextCronTime().getTime() + AFTER_CRON_MS);
-    pollUntil = null;
+    fastPollUntil = null;
     setTimeout(onCronTick, nextRefreshAt - Date.now());
     setStatus(status.textContent.replace(/ Next data check.*$/, ""));
   }
 
   async function onCronTick() {
-    if (!pollUntil) pollUntil = Date.now() + GIVE_UP_MS;
+    if (!fastPollUntil) fastPollUntil = Date.now() + FAST_POLL_FOR_MS;
     const changed = await refresh();
-    if (changed || Date.now() > pollUntil) {
+    if (changed) {
       scheduleNext();
-    } else {
-      nextRefreshAt = new Date(Date.now() + POLL_MS);
-      setTimeout(onCronTick, POLL_MS);
-      setStatus(status.textContent.replace(/ Next data check.*$/, "") + " Waiting for new data…");
+      return;
     }
+    const delay = Date.now() < fastPollUntil ? FAST_POLL_MS : SLOW_POLL_MS;
+    nextRefreshAt = new Date(Date.now() + delay);
+    setTimeout(onCronTick, delay);
+    setStatus(status.textContent.replace(/ Next data check.*$/, "") + " Waiting for new data…");
   }
 
   refresh().then(scheduleNext);
