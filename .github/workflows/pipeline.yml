@@ -1,8 +1,8 @@
-name: Hourly temperature pipeline
+name: Temperature pipeline (every 4 hours)
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every 60 minutes (UTC)
+    - cron: "0 */4 * * *" # every 4 hours (UTC)
   workflow_dispatch:       # manual "Run workflow" button
 
 permissions:

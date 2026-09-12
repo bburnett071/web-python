@@ -1,6 +1,6 @@
 # Austin temperature demo pipeline
 
-Demo only. A GitHub Action runs every 60 minutes and:
+Demo only. A GitHub Action runs every 4 hours and:
 
 1. `db_pull.py` appends a fake Austin, TX temperature reading to `data/events.csv`.
 2. `run_model.py` predicts the next reading (average of the last two) and writes
