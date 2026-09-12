@@ -38,7 +38,8 @@
   h1 { font-size: 1.4rem; margin: 0 0 4px; }
   h2 { font-size: 1rem; margin: 24px 0 8px; }
   p.sub { color: var(--text-secondary); margin: 0 0 16px; }
-  p.refreshed { margin: 0 0 8px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  p.refreshed { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  p.refreshed + p.sub { margin-top: 8px; }
   .chart { position: relative; height: 280px; max-width: 100%; }
   #status { color: var(--text-secondary); }
   table { border-collapse: collapse; width: 100%; margin-top: 8px; font-variant-numeric: tabular-nums; }
@@ -50,7 +51,8 @@
 <body>
 <main>
   <h1>Austin, TX temperature predictions</h1>
-  <p id="lastRefreshed" class="refreshed">Last refreshed: —</p>
+  <p id="lastRefresh" class="refreshed">Last refresh: —</p>
+  <p id="lastActivity" class="refreshed">Last activity: —</p>
   <p class="sub">Predicted vs. actual temperature and prediction error for the last 10 runs. Prediction is the average of the previous two readings.</p>
   <p id="status">Loading output/predict.json…</p>
 
@@ -87,7 +89,8 @@
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim();
   const status = document.getElementById("status");
-  const lastRefreshed = document.getElementById("lastRefreshed");
+  const lastRefreshEl = document.getElementById("lastRefresh");
+  const lastActivityEl = document.getElementById("lastActivity");
   const charts = {};
   let etag = null;
   let signature = null;
@@ -107,12 +110,21 @@
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  function setLastRefreshed(records) {
-    if (!records.length) { lastRefreshed.textContent = "Last refreshed: no data yet"; return; }
+  const LOCAL_FMT = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" };
+
+  // When this browser last checked the server for new data.
+  function setLastRefresh() {
+    const d = new Date();
+    lastRefreshEl.textContent = `Last refresh: ${d.toLocaleString([], LOCAL_FMT)}`;
+    lastRefreshEl.title = "When this page last checked for new data";
+  }
+
+  // Timestamp of the newest event in the data.
+  function setLastActivity(records) {
+    if (!records.length) { lastActivityEl.textContent = "Last activity: no data yet"; return; }
     const d = new Date(records[records.length - 1].timestamp);
-    const local = d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
-    lastRefreshed.textContent = `Last refreshed: ${local}`;
-    lastRefreshed.title = `Timestamp of the latest event in the data (${d.toISOString().replace(".000Z", "Z")})`;
+    lastActivityEl.textContent = `Last activity: ${d.toLocaleString([], LOCAL_FMT)}`;
+    lastActivityEl.title = `Timestamp of the latest event in the data (${d.toISOString().replace(".000Z", "Z")})`;
   }
 
   function setStatus(msg) {
@@ -197,6 +209,7 @@
     let records;
     try {
       records = await fetchIfChanged();
+      setLastRefresh();
     } catch (err) {
       setStatus("Could not load output/predict.json (" + err.message + "). Serve this folder over HTTP, e.g. `python -m http.server`, or view it on GitHub Pages.");
       return false;
@@ -204,7 +217,7 @@
     const changed = records !== null;
     if (changed) {
       total = records.length;
-      setLastRefreshed(records);
+      setLastActivity(records);
       if (records.length) render(records);
     }
     if (!total) setStatus("No predictions yet.");
