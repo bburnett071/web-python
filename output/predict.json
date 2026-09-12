@@ -1,0 +1,23 @@
+[
+  {
+    "timestamp": "2026-09-12T02:10:51+00:00",
+    "for_row": 1,
+    "predicted": 79.0,
+    "actual": 79.1,
+    "error": -0.1
+  },
+  {
+    "timestamp": "2026-09-12T02:10:51+00:00",
+    "for_row": 2,
+    "predicted": 79.0,
+    "actual": 76.8,
+    "error": 2.2
+  },
+  {
+    "timestamp": "2026-09-12T02:10:51+00:00",
+    "for_row": 3,
+    "predicted": 77.9,
+    "actual": null,
+    "error": null
+  }
+]

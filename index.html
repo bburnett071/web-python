@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Austin Temperature Predictions</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --grid: rgba(0, 0, 0, 0.08);
+    --series-actual: #2a78d6;     /* blue   - categorical slot 1 */
+    --series-predicted: #eb6834;  /* orange - categorical slot 2 */
+    --series-error: #1baf7a;      /* aqua   - categorical slot 3 */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --grid: rgba(255, 255, 255, 0.10);
+      --series-actual: #3987e5;
+      --series-predicted: #d95926;
+      --series-error: #199e70;
+    }
+  }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: var(--surface);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  h2 { font-size: 1rem; margin: 24px 0 8px; }
+  p.sub { color: var(--text-secondary); margin: 0 0 16px; }
+  .chart { position: relative; height: 280px; max-width: 100%; }
+  #status { color: var(--text-secondary); }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  .tablewrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Austin, TX temperature predictions</h1>
+  <p class="sub">Predicted vs. actual temperature and prediction error for the last 10 runs. Prediction is the average of the previous two readings.</p>
+  <p id="status">Loading output/predict.json…</p>
+
+  <h2>Temperature (°F)</h2>
+  <div class="chart"><canvas id="tempChart"></canvas></div>
+
+  <h2>Prediction error (predicted − actual, °F)</h2>
+  <div class="chart"><canvas id="errorChart"></canvas></div>
+
+  <h2>Last 10 entries</h2>
+  <div class="tablewrap">
+    <table id="dataTable">
+      <thead><tr><th>Made at (UTC)</th><th>Predicted</th><th>Actual</th><th>Error</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+(async function () {
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  const status = document.getElementById("status");
+
+  let records;
+  try {
+    const res = await fetch("output/predict.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    records = await res.json();
+  } catch (err) {
+    status.textContent = "Could not load output/predict.json (" + err.message + "). Serve this folder over HTTP, e.g. `python -m http.server`, or view it on GitHub Pages.";
+    return;
+  }
+
+  const last10 = records.slice(-10);
+  if (!last10.length) { status.textContent = "No predictions yet."; return; }
+  status.textContent = `${records.length} prediction${records.length === 1 ? "" : "s"} total; showing last ${last10.length}.`;
+
+  const labels = last10.map(r => r.timestamp.replace("T", " ").replace("+00:00", ""));
+  const fmt = v => (v === null || v === undefined) ? "" : v.toFixed(1);
+
+  const common = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { labels: { color: color("--text-primary"), boxWidth: 12 } },
+      tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw === null ? "pending" : c.raw.toFixed(1) + " °F"}` } },
+    },
+    scales: {
+      x: { ticks: { color: color("--text-secondary"), maxRotation: 45, autoSkip: true }, grid: { color: color("--grid") } },
+      y: { ticks: { color: color("--text-secondary") }, grid: { color: color("--grid") } },
+    },
+  };
+
+  new Chart(document.getElementById("tempChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Actual", data: last10.map(r => r.actual), borderColor: color("--series-actual"), backgroundColor: color("--series-actual"), borderWidth: 2, pointRadius: 4, tension: 0.2, spanGaps: false },
+        { label: "Predicted", data: last10.map(r => r.predicted), borderColor: color("--series-predicted"), backgroundColor: color("--series-predicted"), borderWidth: 2, borderDash: [6, 4], pointRadius: 4, pointStyle: "rectRot", tension: 0.2 },
+      ],
+    },
+    options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: "°F", color: color("--text-secondary") } } } },
+  });
+
+  new Chart(document.getElementById("errorChart"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Error", data: last10.map(r => r.error), backgroundColor: color("--series-error"), borderRadius: 4, maxBarThickness: 32 },
+      ],
+    },
+    options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: "°F", color: color("--text-secondary") } } } },
+  });
+
+  const tbody = document.querySelector("#dataTable tbody");
+  for (const r of [...last10].reverse()) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${labels[last10.indexOf(r)]}</td><td>${fmt(r.predicted)}</td><td>${fmt(r.actual)}</td><td>${r.error === null ? "pending" : fmt(r.error)}</td>`;
+    tbody.appendChild(tr);
+  }
+})();
+</script>
+</body>
+</html>
