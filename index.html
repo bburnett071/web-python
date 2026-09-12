@@ -68,71 +68,138 @@
 </main>
 
 <script>
-(async function () {
+(function () {
+  // Matches the workflow cron "0 */4 * * *" (UTC). The page re-fetches the data
+  // 30 s after each scheduled run, then keeps checking every minute until the
+  // new record shows up (GitHub cron runs and Pages deploys are often late).
+  const CRON_HOURS = 4;
+  const AFTER_CRON_MS = 30 * 1000;
+  const POLL_MS = 60 * 1000;
+  const GIVE_UP_MS = 30 * 60 * 1000;
+
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim();
   const status = document.getElementById("status");
+  const charts = {};
+  let recordCount = -1;
+  let nextRefreshAt = null;
+  let pollUntil = null;
 
-  let records;
-  try {
+  function nextCronTime(from = new Date()) {
+    const t = new Date(from);
+    t.setUTCMinutes(0, 0, 0);
+    const h = t.getUTCHours();
+    t.setUTCHours(h - (h % CRON_HOURS) + CRON_HOURS);
+    return t;
+  }
+
+  function fmtTime(d) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function setStatus(msg) {
+    const when = nextRefreshAt ? ` Next data check at ${fmtTime(nextRefreshAt)}.` : "";
+    status.textContent = msg + when;
+  }
+
+  async function fetchRecords() {
     const res = await fetch("output/predict.json", { cache: "no-store" });
     if (!res.ok) throw new Error(res.status + " " + res.statusText);
-    records = await res.json();
-  } catch (err) {
-    status.textContent = "Could not load output/predict.json (" + err.message + "). Serve this folder over HTTP, e.g. `python -m http.server`, or view it on GitHub Pages.";
-    return;
+    return res.json();
   }
 
-  const last10 = records.slice(-10);
-  if (!last10.length) { status.textContent = "No predictions yet."; return; }
-  status.textContent = `${records.length} prediction${records.length === 1 ? "" : "s"} total; showing last ${last10.length}.`;
+  function render(records) {
+    const last10 = records.slice(-10);
+    const labels = last10.map(r => r.timestamp.replace("T", " ").replace("+00:00", ""));
+    const fmt = v => (v === null || v === undefined) ? "" : v.toFixed(1);
 
-  const labels = last10.map(r => r.timestamp.replace("T", " ").replace("+00:00", ""));
-  const fmt = v => (v === null || v === undefined) ? "" : v.toFixed(1);
+    const common = () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { labels: { color: color("--text-primary"), boxWidth: 12 } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw === null ? "pending" : c.raw.toFixed(1) + " °F"}` } },
+      },
+      scales: {
+        x: { ticks: { color: color("--text-secondary"), maxRotation: 45, autoSkip: true }, grid: { color: color("--grid") } },
+        y: { ticks: { color: color("--text-secondary") }, grid: { color: color("--grid") }, title: { display: true, text: "°F", color: color("--text-secondary") } },
+      },
+    });
 
-  const common = {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: "index", intersect: false },
-    plugins: {
-      legend: { labels: { color: color("--text-primary"), boxWidth: 12 } },
-      tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw === null ? "pending" : c.raw.toFixed(1) + " °F"}` } },
-    },
-    scales: {
-      x: { ticks: { color: color("--text-secondary"), maxRotation: 45, autoSkip: true }, grid: { color: color("--grid") } },
-      y: { ticks: { color: color("--text-secondary") }, grid: { color: color("--grid") } },
-    },
-  };
+    for (const c of Object.values(charts)) c.destroy();
 
-  new Chart(document.getElementById("tempChart"), {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "Actual", data: last10.map(r => r.actual), borderColor: color("--series-actual"), backgroundColor: color("--series-actual"), borderWidth: 2, pointRadius: 4, tension: 0.2, spanGaps: false },
-        { label: "Predicted", data: last10.map(r => r.predicted), borderColor: color("--series-predicted"), backgroundColor: color("--series-predicted"), borderWidth: 2, borderDash: [6, 4], pointRadius: 4, pointStyle: "rectRot", tension: 0.2 },
-      ],
-    },
-    options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: "°F", color: color("--text-secondary") } } } },
-  });
+    charts.temp = new Chart(document.getElementById("tempChart"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "Actual", data: last10.map(r => r.actual), borderColor: color("--series-actual"), backgroundColor: color("--series-actual"), borderWidth: 2, pointRadius: 4, tension: 0.2, spanGaps: false },
+          { label: "Predicted", data: last10.map(r => r.predicted), borderColor: color("--series-predicted"), backgroundColor: color("--series-predicted"), borderWidth: 2, borderDash: [6, 4], pointRadius: 4, pointStyle: "rectRot", tension: 0.2 },
+        ],
+      },
+      options: common(),
+    });
 
-  new Chart(document.getElementById("errorChart"), {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        { label: "Error", data: last10.map(r => r.error), backgroundColor: color("--series-error"), borderRadius: 4, maxBarThickness: 32 },
-      ],
-    },
-    options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, title: { display: true, text: "°F", color: color("--text-secondary") } } } },
-  });
+    charts.error = new Chart(document.getElementById("errorChart"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: "Error", data: last10.map(r => r.error), backgroundColor: color("--series-error"), borderRadius: 4, maxBarThickness: 32 },
+        ],
+      },
+      options: common(),
+    });
 
-  const tbody = document.querySelector("#dataTable tbody");
-  for (const r of [...last10].reverse()) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${labels[last10.indexOf(r)]}</td><td>${fmt(r.predicted)}</td><td>${fmt(r.actual)}</td><td>${r.error === null ? "pending" : fmt(r.error)}</td>`;
-    tbody.appendChild(tr);
+    const tbody = document.querySelector("#dataTable tbody");
+    tbody.innerHTML = "";
+    last10.slice().reverse().forEach((r, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${labels[last10.length - 1 - i]}</td><td>${fmt(r.predicted)}</td><td>${fmt(r.actual)}</td><td>${r.error === null ? "pending" : fmt(r.error)}</td>`;
+      tbody.appendChild(tr);
+    });
   }
+
+  async function refresh() {
+    let records;
+    try {
+      records = await fetchRecords();
+    } catch (err) {
+      setStatus("Could not load output/predict.json (" + err.message + "). Serve this folder over HTTP, e.g. `python -m http.server`, or view it on GitHub Pages.");
+      return false;
+    }
+    const changed = records.length !== recordCount;
+    if (changed) {
+      recordCount = records.length;
+      if (records.length) render(records);
+    }
+    if (!records.length) setStatus("No predictions yet.");
+    else setStatus(`${records.length} prediction${records.length === 1 ? "" : "s"} total; showing last ${Math.min(10, records.length)}. Updated ${fmtTime(new Date())}.`);
+    return changed;
+  }
+
+  function scheduleNext() {
+    nextRefreshAt = new Date(nextCronTime().getTime() + AFTER_CRON_MS);
+    pollUntil = null;
+    setTimeout(onCronTick, nextRefreshAt - Date.now());
+    setStatus(status.textContent.replace(/ Next data check.*$/, ""));
+  }
+
+  async function onCronTick() {
+    if (!pollUntil) pollUntil = Date.now() + GIVE_UP_MS;
+    const changed = await refresh();
+    if (changed || Date.now() > pollUntil) {
+      scheduleNext();
+    } else {
+      nextRefreshAt = new Date(Date.now() + POLL_MS);
+      setTimeout(onCronTick, POLL_MS);
+      setStatus(status.textContent.replace(/ Next data check.*$/, "") + " Waiting for new data…");
+    }
+  }
+
+  refresh().then(scheduleNext);
 })();
 </script>
 </body>

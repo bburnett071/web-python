@@ -10,7 +10,9 @@ Demo only. A GitHub Action runs every 4 hours and:
 3. The results are committed back to the repo.
 
 `index.html` charts the temperature and error for the last 10 predictions. It
-fetches `output/predict.json`, so it needs to be served over HTTP:
+fetches `output/predict.json`, so it needs to be served over HTTP. It re-fetches
+the data 30 seconds after each scheduled run (every 4 hours, UTC) and keeps checking
+each minute until the new record appears, so an open tab updates on its own.
 
 - Locally: `python -m http.server` then open http://localhost:8000/
 - On GitHub: enable Pages (Settings → Pages → Deploy from branch → `main`, `/ (root)`).
