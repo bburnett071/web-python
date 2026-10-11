@@ -766,6 +766,13 @@
     "timestamp": "2026-10-10T23:37:40+00:00",
     "for_row": 110,
     "predicted": 54.8,
+    "actual": 56.0,
+    "error": -1.2
+  },
+  {
+    "timestamp": "2026-10-11T05:56:41+00:00",
+    "for_row": 111,
+    "predicted": 55.1,
     "actual": null,
     "error": null
   }
